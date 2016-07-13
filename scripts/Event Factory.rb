@@ -1,3 +1,29 @@
+п»ї=begin
+#======================================================================[LICENSE]
+The MIT License (MIT)
+
+Copyright (c) 2016 Amphilohiy
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+#===============================================================================
+=end
+
 $imported ||= {}
 $imported[:EventFactory] = "1.0.0"
 
@@ -5,7 +31,7 @@ $imported[:EventFactory] = "1.0.0"
 #                                                                    CONFIG CORE
 #===============================================================================
 module Amphicore
-  EVENT_FACTORY_TEMPLATES = [2]
+  EVENT_FACTORY_TEMPLATES = []
 #===============================================================================
 #                                                                  EVENT FACTORY
 #===============================================================================
@@ -23,7 +49,7 @@ module Amphicore
     EVENT_FACTORY_TEMPLATES.each{ |map_id| add_template(map_id) }
 #----------------------------------------------------------------command pattern   
     class Command
-      # освежить в памяти разницу include и extend
+      # РѕСЃРІРµР¶РёС‚СЊ РІ РїР°РјСЏС‚Рё СЂР°Р·РЅРёС†Сѓ include Рё extend
       attr_reader :opts
       include EventFactory
       def initialize(opts = {})
@@ -93,7 +119,7 @@ module Amphicore
     
     FREE_COMMANDS = [CommandErase]
 #------------------------------------------------------------------------mapping
-    # Проверить тему с пространством модуля
+    # РџСЂРѕРІРµСЂРёС‚СЊ С‚РµРјСѓ СЃ РїСЂРѕСЃС‚СЂР°РЅСЃС‚РІРѕРј РјРѕРґСѓР»СЏ
     Amphicore.serialize("event_factory_mapping", Hash)
     
     def self.get_mapping(map_id)
@@ -175,11 +201,11 @@ class Game_Map
     setup_events_event_factory(*args)
     acef_cleanup
     acef_apply_events
-    # Рефрешится дважды, найти обход в будущем
+    # Р РµС„СЂРµС€РёС‚СЃСЏ РґРІР°Р¶РґС‹, РЅР°Р№С‚Рё РѕР±С…РѕРґ РІ Р±СѓРґСѓС‰РµРј
     refresh_tile_events
   end
   
-  # Функция сбора лишних команд сейва. А надо ли?
+  # Р¤СѓРЅРєС†РёСЏ СЃР±РѕСЂР° Р»РёС€РЅРёС… РєРѕРјР°РЅРґ СЃРµР№РІР°. Рђ РЅР°РґРѕ Р»Рё?
   def acef_cleanup
     mapping = Amphicore::EventFactory.get_mapping(@map_id)
     keys = @events.keys
