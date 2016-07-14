@@ -85,10 +85,6 @@ module Amphicore
     def self.get_note(item)
       get(item, item.note, NOTE_PARSEKIT)
     end
-    
-    def self.get_event(event)
-      get_rgss_event(event.instance_variable_get(:@event))
-    end
 #---------------------------------------------------------------parser utilities    
     COMMENTS_COMMAND = [108, 408]
     def self.collect_comments(list)
@@ -116,7 +112,13 @@ module Amphicore
       result
     end
     
-    def self.get_rgss_event_page
+    def self.get_rgss_event_page(page)
+      result = page.instance_variable_get(:@apd)
+      return result unless result.nil?
+      comments = collect_comments(page.list)
+      result = parse_text(comments, EVENT_PAGE_PARSEKIT)
+      page.instance_variable_set(:@apd, result)
+      result
     end
   end
 #===============================================================================
@@ -186,6 +188,38 @@ class Game_SelfVariables
   end
   def on_change
     $game_map.need_refresh = true
+  end
+end
+#---------------------------------------------------------------events interface
+class Game_Event
+  def parse_data
+    Amphicore::TextParser.get_rgss_event(@event)
+  end
+  
+  def parse_page(page_num = nil)
+    page = page_num ? @event.pages[page_num] : @page
+    Amphicore::TextParser.get_rgss_event_page(page)
+  end
+end
+
+class Game_CommonEvent
+  def parse_data
+    Amphicore::TextParser.get_rgss_event_page(@event)
+  end
+  
+  def parse_page
+    parse_data
+  end
+end
+
+class Game_Troop < Game_Unit
+  def parse_data
+    Amphicore::TextParser.get_rgss_event(troop)
+  end
+  
+  def parse_page(page_num)
+    page = troop.pages[page_num]
+    Amphicore::TextParser.get_rgss_event_page(page)
   end
 end
 #===============================================================================

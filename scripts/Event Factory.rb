@@ -25,13 +25,13 @@ SOFTWARE.
 =end
 
 $imported ||= {}
-$imported[:EventFactory] = "1.0.0"
+$imported[:EventFactory] = "1.0.1"
 
 #===============================================================================
 #                                                                    CONFIG CORE
 #===============================================================================
 module Amphicore
-  EVENT_FACTORY_TEMPLATES = []
+  EVENT_FACTORY_TEMPLATES = [2]
 #===============================================================================
 #                                                                  EVENT FACTORY
 #===============================================================================
@@ -116,35 +116,78 @@ module Amphicore
         sprites.push(Sprite_Character.new(viewport, event))
       end
     end
-    
-    FREE_COMMANDS = [CommandErase]
 #------------------------------------------------------------------------mapping
     # Проверить тему с пространством модуля
     Amphicore.serialize("event_factory_mapping", Hash)
     
+    ORIGINALS_MAPPINGS = {}
+    #well i thought lil registry would be nice
+    @@last_map_id = nil
+    @@last_map = nil
+    
     def self.get_mapping(map_id)
-      if $event_factory_mapping[map_id].nil?
-        mapping = {}
-        $event_factory_mapping[map_id] = mapping
-        map = load_data(sprintf("Data/Map%03d.rvdata2", map_id))
-        map.events.each do |key, value| 
-          mapping[key] = CommandNothing.new(event_id: key)
-        end
-        mapping
-      else
-        $event_factory_mapping[map_id]
-      end
+      gather_mappings(map_id)
+      $event_factory_mapping[map_id]
+    end
+    
+    def self.get_original_mapping(map_id)
+      gather_mappings(map_id)
+      ORIGINALS_MAPPINGS[map_id]
     end
     
     def self.get_free(map_id)
       mapping = get_mapping(map_id)
       ia = 1
-      while !mapping[ia].nil? || FREE_COMMANDS.include?(mapping[ia]) do
+      while !mapping[ia].nil? do
         ia+=1
       end
       ia
     end
 #--------------------------------------------------------------factory utilities    
+    def self.get_map(map_id)
+      if @@last_map_id != map_id
+        @@last_map = if $game_map.map_id == map_id
+          $game_map.instance_variable_get(:@map)
+        else
+          load_data(sprintf("Data/Map%03d.rvdata2", map_id))
+        end
+        @@last_map_id = map_id
+      end
+      @@last_map
+    end
+    
+    def self.gather_mappings(map_id)
+      cond2 = ORIGINALS_MAPPINGS[map_id].nil?
+      return unless cond2
+      cond1 = $event_factory_mapping[map_id].nil?
+      return unless cond1
+      map = get_map(map_id)
+      # create initial mapping
+      if cond1
+        mapping = {}
+        $event_factory_mapping[map_id] = mapping
+        map.events.each do |key, value| 
+          data = Amphicore::TextParser.get_rgss_event(value)
+          command = case
+          when !data[:replace].nil?
+            CommandReplace.new(
+              map_id: map_id, id: key, name: data[:replace], x: value.x, y: value.y)
+          else
+            CommandNothing.new(id: key)
+          end
+          mapping[key] = command
+        end
+      end
+      #collect origianl mapping
+      if cond2
+        mapping = []
+        ORIGINALS_MAPPINGS[map_id] = mapping
+        map.events.each do |key, value| 
+          mapping.push(key) 
+        end
+      end
+    end
+
     def self.get_scene
       scene = SceneManager.scene
       return scene if scene.class == Scene_Map
@@ -177,8 +220,14 @@ module Amphicore
       mapping = get_mapping(map_id)
       command = CommandErase.new(
         map_id: map_id, id: event_id)
-      mapping[event_id] = command
       inject(command, map_id)
+      #check if we actually need to store command
+      original_mapping = get_original_mapping(map_id)
+      if original_mapping.include?(event_id)
+        mapping[event_id] = command
+      else
+        mapping.delete(event_id)
+      end
       $game_self_switches.acef_remove_path(map_id, event_id)
     end
     
@@ -199,19 +248,9 @@ class Game_Map
   alias setup_events_event_factory setup_events
   def setup_events(*args)
     setup_events_event_factory(*args)
-    acef_cleanup
     acef_apply_events
     # Рефрешится дважды, найти обход в будущем
     refresh_tile_events
-  end
-  
-  # Функция сбора лишних команд сейва. А надо ли?
-  def acef_cleanup
-    mapping = Amphicore::EventFactory.get_mapping(@map_id)
-    keys = @events.keys
-    work_keys = mapping.keys - keys
-    work_keys = work_keys.select {|id| Amphicore::EventFactory::FREE_COMMANDS.include?(mapping[id].class)}
-    work_keys.each {|id| mapping.delete(id)}
   end
   
   def acef_apply_events
