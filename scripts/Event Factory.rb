@@ -32,6 +32,9 @@ $imported[:EventFactory] = "1.0.1"
 #===============================================================================
 module Amphicore
   EVENT_FACTORY_TEMPLATES = [2]
+  
+  TAG_PRESERVE_POSITION = :save_pos
+  TAG_REPLACE_EVENT = :replace
 #===============================================================================
 #                                                                  EVENT FACTORY
 #===============================================================================
@@ -60,6 +63,23 @@ module Amphicore
       end
       def apply(events) nil end
       def apply_current(events, sprites, viewport = nil) nil end
+        
+      def store_position(event)
+        # look for more gentle solution
+        #return if event.nil?
+        if !event.parse_data[TAG_PRESERVE_POSITION].nil?
+          @x = event.x
+          @y = event.y
+        end
+      end
+      
+      def restore_position(event)
+        # look for more gentle solution
+        #return if event.nil?
+        if !event.parse_data[TAG_PRESERVE_POSITION].nil? && !@x.nil? && !@y.nil?
+          event.moveto(@x, @y)
+        end
+      end
     end
     
     class CommandNothing < Command
@@ -158,9 +178,8 @@ module Amphicore
     
     def self.gather_mappings(map_id)
       cond2 = ORIGINALS_MAPPINGS[map_id].nil?
-      return unless cond2
       cond1 = $event_factory_mapping[map_id].nil?
-      return unless cond1
+      return unless cond1 || cond2
       map = get_map(map_id)
       # create initial mapping
       if cond1
@@ -169,9 +188,9 @@ module Amphicore
         map.events.each do |key, value| 
           data = Amphicore::TextParser.get_rgss_event(value)
           command = case
-          when !data[:replace].nil?
+          when !data[TAG_REPLACE_EVENT].nil?
             CommandReplace.new(
-              map_id: map_id, id: key, name: data[:replace], x: value.x, y: value.y)
+              map_id: map_id, id: key, name: data[TAG_REPLACE_EVENT], x: value.x, y: value.y)
           else
             CommandNothing.new(id: key)
           end
@@ -198,13 +217,8 @@ module Amphicore
     
     def self.inject(command, map_id)
       return if $game_map.map_id != map_id
-      scene = get_scene
-      spriteset = scene.instance_variable_get(:@spriteset)
-      sprites = spriteset.instance_variable_get(:@character_sprites)
-      viewport = spriteset.instance_variable_get(:@viewport1)
-      events = $game_map.events
-      command.apply_current(events, sprites, viewport)
-      $game_map.refresh_tile_events
+      $game_map.acef_stack.push(command)
+      $game_map.acef_apply = true
     end
 #----------------------------------------------------------------------interface   
     def self.create(map_id, name, x, y)
@@ -214,6 +228,7 @@ module Amphicore
         map_id: map_id, id: free_id, name: name, x: x, y: y)
       mapping[free_id] = command
       inject(command, map_id)
+      free_id
     end
     
     def self.erase(map_id, event_id)
@@ -237,6 +252,7 @@ module Amphicore
         map_id: map_id, id: event_id, name: name, x: x, y: y)
       mapping[event_id] = command
       inject(command, map_id)
+      $game_self_switches.acef_remove_path(map_id, event_id)
     end
   end
 end
@@ -245,12 +261,39 @@ end
 #===============================================================================
 #----------------------------------------------------------map events injections
 class Game_Map
+  attr_accessor :acef_stack
+  attr_accessor :acef_apply
+  
   alias setup_events_event_factory setup_events
   def setup_events(*args)
+    @acef_stack = []
+    @acef_apply = false
     setup_events_event_factory(*args)
     acef_apply_events
     # Рефрешится дважды, найти обход в будущем
     refresh_tile_events
+  end
+  
+  alias acef_setup setup
+  def setup(*args)
+    acef_store_position
+    acef_setup(*args)
+    acef_restore_position
+  end
+  
+  def acef_store_position
+    return if @map.nil?
+    mapping = Amphicore::EventFactory.get_mapping(@map_id)
+    mapping.each do |id, event|
+      event.store_position(@events[id])
+    end
+  end
+  
+  def acef_restore_position
+    mapping = Amphicore::EventFactory.get_mapping(@map_id)
+    mapping.each do |id, event|
+      event.restore_position(@events[id])
+    end
   end
   
   def acef_apply_events
@@ -258,6 +301,25 @@ class Game_Map
     mapping.each do |id, event|
       event.apply(@events)
     end
+  end
+  
+  alias acef_update_events update_events
+  def update_events
+    acef_update_events
+    acef_apply_current_events if @acef_apply
+  end
+  
+  def acef_apply_current_events
+    scene = Amphicore::EventFactory.get_scene
+    spriteset = scene.instance_variable_get(:@spriteset)
+    sprites = spriteset.instance_variable_get(:@character_sprites)
+    viewport = spriteset.instance_variable_get(:@viewport1)
+    @acef_stack.each do |command|
+      command.apply_current(@events, sprites, viewport)
+    end
+    $game_map.refresh_tile_events
+    @acef_apply = false
+    @acef_stack.clear
   end
 end
 #----------------------------------------------------------------erase self data
