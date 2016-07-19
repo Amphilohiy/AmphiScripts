@@ -22,16 +22,23 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 #===============================================================================
+PATCHNOTE'S
+► 1.0.0
+  ♦ Template system
+  ♦ Create, erase and replace events
+    → Replace event on startup by tag
+  ♦ Position preservation
+#===============================================================================
 =end
-
 $imported ||= {}
-$imported[:EventFactory] = "1.0.1"
-
+$imported[:EventFactory] = "1.0.0"
+if $imported[:Amphicore].nil? then 
+  raise "Import Amphicore script!"
 #===============================================================================
 #                                                                    CONFIG CORE
 #===============================================================================
 module Amphicore
-  EVENT_FACTORY_TEMPLATES = [2]
+  EVENT_FACTORY_TEMPLATES = []
   
   TAG_PRESERVE_POSITION = :save_pos
   TAG_REPLACE_EVENT = :replace
@@ -40,8 +47,8 @@ module Amphicore
 #===============================================================================
   module EventFactory
 #---------------------------------------------------------------template factory
+    # all template events goes here (name => event)
     @@templates = {}
-    
     
     # use as initialisation
     def self.add_template(map_id)
@@ -51,22 +58,28 @@ module Amphicore
     
     EVENT_FACTORY_TEMPLATES.each{ |map_id| add_template(map_id) }
 #----------------------------------------------------------------command pattern   
+    # if not sure what command is - google patterns. Whole concept goes around
+    # hash with commands, which represents difference between original map, and
+    # result of developer maniputations
     class Command
-      # освежить в памяти разницу include и extend
       attr_reader :opts
       include EventFactory
+      # some... really... weird initialization... i think i wanted to experiment
+      # a little bit
       def initialize(opts = {})
         @opts = opts
         @opts.each do |key, value|
           instance_variable_set(("@"+key.to_s).to_sym, value)
         end
       end
+      # calls for applying difference on startings map
       def apply(events) nil end
+      # calls for applying difference on current map
       def apply_current(events, sprites, viewport = nil) nil end
         
       def store_position(event)
         # look for more gentle solution
-        #return if event.nil?
+        # return if event.nil?
         if !event.parse_data[TAG_PRESERVE_POSITION].nil?
           @x = event.x
           @y = event.y
@@ -75,16 +88,19 @@ module Amphicore
       
       def restore_position(event)
         # look for more gentle solution
-        #return if event.nil?
+        # return if event.nil?
         if !event.parse_data[TAG_PRESERVE_POSITION].nil? && !@x.nil? && !@y.nil?
           event.moveto(@x, @y)
         end
       end
     end
     
+    # a placeholder for... well... doing nothing, just to keep track of original
+    # event's (like looking for free id... only for looking for free id)
     class CommandNothing < Command
     end
     
+    # creating!
     class CommandCreate < Command
       def apply(events)
         event = @@templates[@name].clone.tap{|obj| obj.x = @x; obj.y = @y; obj.id = @id}
@@ -93,12 +109,14 @@ module Amphicore
         events[@id]
       end
       
+      # creating sprite in middle of game got me thinking.
       def apply_current(events, sprites, viewport = nil)
         event = apply(events)
         sprites.push(Sprite_Character.new(viewport, event))
       end
     end
     
+    # DESTROYING MORTAL EVENTS FOR GOD OF DESTRUCTION!
     class CommandErase < Command
       def apply(events)
         events.delete(@id)
@@ -107,6 +125,8 @@ module Amphicore
       def apply_current(events, sprites, viewport = nil)
         apply(events)
         #keys = sprites.map.with_index {|value, key| key}
+        # well, creating sprite was interesting, but tracking and disposing existed...
+        # btw sprite would be destroyed with delay by gcc
         sprites.reject! do |sprite| 
           result = sprite.character.id == @id
           sprite.dispose if result
@@ -137,24 +157,27 @@ module Amphicore
       end
     end
 #------------------------------------------------------------------------mapping
-    # Проверить тему с пространством модуля
+    # check module bindings
     Amphicore.serialize("event_factory_mapping", Hash)
     
     ORIGINALS_MAPPINGS = {}
-    #well i thought lil registry would be nice
+    # well i thought lil registry would be nice (made a little bit faster)
     @@last_map_id = nil
     @@last_map = nil
     
+    # mapping is that difference hash that i told about near command section
     def self.get_mapping(map_id)
       gather_mappings(map_id)
       $event_factory_mapping[map_id]
     end
     
+    # mapping of original id's
     def self.get_original_mapping(map_id)
       gather_mappings(map_id)
       ORIGINALS_MAPPINGS[map_id]
     end
     
+    # searching for free id (used only for creation)
     def self.get_free(map_id)
       mapping = get_mapping(map_id)
       ia = 1
@@ -164,6 +187,7 @@ module Amphicore
       ia
     end
 #--------------------------------------------------------------factory utilities    
+    # yep, gets map (using registry of maps ofc)
     def self.get_map(map_id)
       if @@last_map_id != map_id
         @@last_map = if $game_map.map_id == map_id
@@ -176,6 +200,7 @@ module Amphicore
       @@last_map
     end
     
+    # get 2 mappgins - differece and original. First goes to save, second memoized for game session
     def self.gather_mappings(map_id)
       cond2 = ORIGINALS_MAPPINGS[map_id].nil?
       cond1 = $event_factory_mapping[map_id].nil?
@@ -207,6 +232,7 @@ module Amphicore
       end
     end
 
+    # tricky one - scene ripped from SceneManager
     def self.get_scene
       scene = SceneManager.scene
       return scene if scene.class == Scene_Map
@@ -215,13 +241,14 @@ module Amphicore
       end
     end
     
+    # put for current map an order to handle events
     def self.inject(command, map_id)
       return if $game_map.map_id != map_id
       $game_map.acef_stack.push(command)
       $game_map.acef_apply = true
     end
 #----------------------------------------------------------------------interface   
-    def self.create(map_id, name, x, y)
+    def self.create(name, x, y, map_id = $game_map.map_id)
       free_id = get_free(map_id)
       mapping = get_mapping(map_id)
       command = CommandCreate.new(
@@ -231,12 +258,11 @@ module Amphicore
       free_id
     end
     
-    def self.erase(map_id, event_id)
+    def self.erase(event_id, map_id = $game_map.map_id)
       mapping = get_mapping(map_id)
       command = CommandErase.new(
         map_id: map_id, id: event_id)
       inject(command, map_id)
-      #check if we actually need to store command
       original_mapping = get_original_mapping(map_id)
       if original_mapping.include?(event_id)
         mapping[event_id] = command
@@ -246,7 +272,7 @@ module Amphicore
       $game_self_switches.acef_remove_path(map_id, event_id)
     end
     
-    def self.replace(map_id, event_id, name, x, y)
+    def self.replace(event_id, name, x, y, map_id = $game_map.map_id)
       mapping = get_mapping(map_id)
       command = CommandReplace.new(
         map_id: map_id, id: event_id, name: name, x: x, y: y)
@@ -266,16 +292,19 @@ class Game_Map
   
   alias setup_events_event_factory setup_events
   def setup_events(*args)
+    # we need to store commands (explain later)
     @acef_stack = []
     @acef_apply = false
     setup_events_event_factory(*args)
+    # inject mapping
     acef_apply_events
-    # Рефрешится дважды, найти обход в будущем
+    # refreshes twice, find workaround later (saving alias)
     refresh_tile_events
   end
   
   alias acef_setup setup
   def setup(*args)
+    # save_pos injection
     acef_store_position
     acef_setup(*args)
     acef_restore_position
@@ -306,9 +335,13 @@ class Game_Map
   alias acef_update_events update_events
   def update_events
     acef_update_events
+    # apply command AFTER update for a reason - while updating @events hash is
+    # occupied (i.e. frozen) so it throws an exception if i try to manipulate it.
+    # So i store command and applying it later, after iteration
     acef_apply_current_events if @acef_apply
   end
   
+  # looksd scary, but mostly it's aquiring required objects
   def acef_apply_current_events
     scene = Amphicore::EventFactory.get_scene
     spriteset = scene.instance_variable_get(:@spriteset)
@@ -323,6 +356,9 @@ class Game_Map
   end
 end
 #----------------------------------------------------------------erase self data
+# same injection for 2 classes. Neat, huh?
+# self switches and self variables now tracks what keys have event, so
+# i can delete those values without iteration through whole hash
 [Game_SelfSwitches, Game_SelfVariables].each do |klass| 
   klass.class_exec do 
     alias acef_initialize initialize
@@ -354,4 +390,19 @@ end
       acef_equal(key, value)
     end
   end 
+end
+
+# some interface
+class Game_Interpreter
+  def create_event(*args)
+    Amphicore::EventFactory.create(*args)
+  end
+  
+  def erase_event(*args)
+    Amphicore::EventFactory.erase(*args)
+  end
+  
+  def replace_event(*args)
+    Amphicore::EventFactory.replace(*args)
+  end
 end

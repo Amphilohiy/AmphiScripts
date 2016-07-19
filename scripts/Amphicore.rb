@@ -22,8 +22,14 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 #===============================================================================
+PATCHNOTE'S
+► 1.0.0
+  ♦ Text parser for ripping data from neutral text
+    → Interface for parcing events, event's pages and items with notes
+  ♦ Data Serialization
+  ♦ Aliases for switches and variables
+#===============================================================================
 =end
-
 $imported ||= {}
 $imported[:Amphicore] = "1.0.0"
 #===============================================================================
@@ -40,6 +46,7 @@ module Amphicore
 #===============================================================================
   module TextParser
 #---------------------------------------------------------------parsekit factory
+    # turn arguments to kit, that would be used later
     def self.create_parsekit(start, separator, finish, opts)
       [
         Regexp.new("#{start}", TEXT_PARSER_CASE),
@@ -48,10 +55,12 @@ module Amphicore
       ]
     end
     
+    # kit's that i personally use in my scripts (and implement some functionality(
     NOTE_PARSEKIT = create_parsekit(*TEXT_NOTE_PARSER, TEXT_PARSER_CASE)
     EVENT_PARSEKIT = create_parsekit(*TEXT_EVENT_PARSER, TEXT_PARSER_CASE)
     EVENT_PAGE_PARSEKIT = create_parsekit(*TEXT_EVENT_PAGE_PARSER, TEXT_PARSER_CASE)
 #-------------------------------------------------------------------------parser
+    # parser itself
     def self.parse_text(text, parsekit)
       tail = text
       data = {}
@@ -73,6 +82,7 @@ module Amphicore
       data
     end
 #----------------------------------------------------------------------interface    
+    # common parsing with custom parsekit and memoization
     def self.get(item, text, parsekit)
       result = item.instance_variable_get(:@apd)
       if !result then
@@ -82,10 +92,12 @@ module Amphicore
       result
     end
     
+    # parsing item with note (default <item> <+> <end>)
     def self.get_note(item)
       get(item, item.note, NOTE_PARSEKIT)
     end
-#---------------------------------------------------------------parser utilities    
+#---------------------------------------------------------------parser utilities 
+    # collecting comments in event. Only starting comments count
     COMMENTS_COMMAND = [108, 408]
     def self.collect_comments(list)
       comments = []
@@ -97,6 +109,7 @@ module Amphicore
       comments.join("\n")
     end
     
+    # get RPG::EVENT type of event
     def self.get_rgss_event(event)
       result = event.instance_variable_get(:@apd)
       return result unless result.nil?
@@ -112,6 +125,7 @@ module Amphicore
       result
     end
     
+    # get RPG::EVENT page type of event
     def self.get_rgss_event_page(page)
       result = page.instance_variable_get(:@apd)
       return result unless result.nil?
@@ -125,12 +139,14 @@ module Amphicore
 #                                                                      UTILITIES
 #=============================================================================== 
 #------------------------------------------------------------------serialization
+  # automatical svaing and loading
   SERIALIZED = {}
   
   def self.serialize(name, klass)
     SERIALIZED[name] = klass
   end
 #------------------------------------------------------------------version check  
+  # this should be final from the begginig btw. I hope it works.
   def self.check_version(imported, requred)
     /(\d+).(\d+).(\d+)(\w*)/ =~ imported
     imported = [$1.to_i, $2.to_i, $3.to_i, $4]
@@ -148,6 +164,7 @@ end
 #-------------------------------------------------------------------data manager
 module DataManager
   class << self
+    # inject serialisation
     alias create_game_objects_amphicore create_game_objects
     def create_game_objects(*args)
       create_game_objects_amphicore(*args)
@@ -175,6 +192,7 @@ module DataManager
   end
 end
 #-----------------------------------------------------------------self variables
+# analog of Game_SelfSwitches
 class Game_SelfVariables
   def initialize
     @data = {}
@@ -192,10 +210,11 @@ class Game_SelfVariables
 end
 #---------------------------------------------------------------events interface
 class Game_Event
+  # interface to get data of event
   def parse_data
     Amphicore::TextParser.get_rgss_event(@event)
   end
-  
+  # interface to get data of event's page
   def parse_page(page_num = nil)
     page = page_num ? @event.pages[page_num] : @page
     Amphicore::TextParser.get_rgss_event_page(page)
@@ -203,20 +222,22 @@ class Game_Event
 end
 
 class Game_CommonEvent
+  # -//-
   def parse_data
     Amphicore::TextParser.get_rgss_event_page(@event)
   end
-  
+  # -//-
   def parse_page
     parse_data
   end
 end
 
 class Game_Troop < Game_Unit
+  # -//-
   def parse_data
     Amphicore::TextParser.get_rgss_event(troop)
   end
-  
+  # -//-
   def parse_page(page_num)
     page = troop.pages[page_num]
     Amphicore::TextParser.get_rgss_event_page(page)
@@ -225,10 +246,13 @@ end
 #===============================================================================
 #                                                                 INITIALIZATION
 #===============================================================================
+# aliases for standard $gave_...
 def var() $game_variables end
 def swi() $game_switches end
 def sswi() $game_self_switches end
+# and not so standard...
 def svar() $game_self_variables end
 
+# some custom serialisations
 Amphicore.serialize("game_hash", Hash)
 Amphicore.serialize("game_self_variables", Game_SelfVariables)
