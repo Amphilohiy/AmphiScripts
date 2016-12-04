@@ -28,17 +28,25 @@ PATCHNOTE'S
   ♦ Create, erase and replace events
     → Replace event on startup by tag
   ♦ Position preservation
+♦ 1.0.1
+  ♦ Arged interface
+  ♦ Bugfixes
+    → Cache clear bug fixed
+    → Game map interpreter freeze bug fixed
 #===============================================================================
 =end
 $imported ||= {}
-$imported[:EventFactory] = "1.0.0"
+$imported[:EventFactory] = "1.0.1"
 if $imported[:Amphicore].nil? then 
   raise "Import Amphicore script!"
+end
+raise "Required at least Amphicore v1.1.0" unless Amphicore.check_version($imported[:Amphicore], "1.1.0")
+
 #===============================================================================
 #                                                                    CONFIG CORE
 #===============================================================================
 module Amphicore
-  EVENT_FACTORY_TEMPLATES = []
+  EVENT_FACTORY_TEMPLATES = [2, 7]
   
   TAG_PRESERVE_POSITION = :save_pos
   TAG_REPLACE_EVENT = :replace
@@ -46,6 +54,7 @@ module Amphicore
 #                                                                  EVENT FACTORY
 #===============================================================================
   module EventFactory
+    extend Amphicore::Kwarged
 #---------------------------------------------------------------template factory
     # all template events goes here (name => event)
     @@templates = {}
@@ -126,19 +135,27 @@ module Amphicore
         apply(events)
         #keys = sprites.map.with_index {|value, key| key}
         # well, creating sprite was interesting, but tracking and disposing existed...
-        # btw sprite would be destroyed with delay by gcc
+        # btw sprite would be destroyed with delay by gc
         sprites.reject! do |sprite| 
           result = sprite.character.id == @id
           sprite.dispose if result
           result
         end
+        # if you want destroy current event i should clear interpreter
+        # otherwise i could freeze everyone... forever!
+        $game_map.interpreter.clear if $game_map.interpreter.event_id == @id
       end
     end
     
     class CommandReplace < Command
-      # Same as create
+      # Same as create (exept positioning)
       def apply(events)
-        event = @@templates[@name].clone.tap{|obj| obj.x = @x; obj.y = @y; obj.id = @id}
+        # desiding position
+        old_event = events[@id]
+        x = @x || old_event.x
+        y = @y || old_event.y
+        # setting event
+        event = @@templates[@name].clone.tap{|obj| obj.x = x; obj.y = y; obj.id = @id}
         events[@id] = Game_Event.new(@map_id, event)
         # is that correct?
         events[@id]
@@ -148,12 +165,15 @@ module Amphicore
       def apply_current(events, sprites, viewport = nil)
         event = apply(events)
         #keys = sprites.map.with_index {|value, key| key}
+        # @TODO find first and replace with new
         sprites.reject! do |sprite| 
           result = sprite.character.id == @id
           sprite.dispose if result
           result
         end
         sprites.push(Sprite_Character.new(viewport, event))
+        
+        $game_map.interpreter.clear if $game_map.interpreter.event_id == @id
       end
     end
 #------------------------------------------------------------------------mapping
@@ -247,6 +267,13 @@ module Amphicore
       $game_map.acef_stack.push(command)
       $game_map.acef_apply = true
     end
+    
+    # clear caches
+    def self.clear_caches
+      @@last_map_id = nil
+      @@last_map = nil
+      ORIGINALS_MAPPINGS.clear
+    end
 #----------------------------------------------------------------------interface   
     def self.create(name, x, y, map_id = $game_map.map_id)
       free_id = get_free(map_id)
@@ -272,7 +299,7 @@ module Amphicore
       $game_self_switches.acef_remove_path(map_id, event_id)
     end
     
-    def self.replace(event_id, name, x, y, map_id = $game_map.map_id)
+    def self.replace(event_id, name, x = nil, y = nil, map_id = $game_map.map_id)
       mapping = get_mapping(map_id)
       command = CommandReplace.new(
         map_id: map_id, id: event_id, name: name, x: x, y: y)
@@ -280,6 +307,8 @@ module Amphicore
       inject(command, map_id)
       $game_self_switches.acef_remove_path(map_id, event_id)
     end
+    
+    arged :create, :erase, :replace
   end
 end
 #===============================================================================
@@ -392,7 +421,7 @@ end
   end 
 end
 
-# some interface
+#-----------------------------------------------------------------some interface
 class Game_Interpreter
   def create_event(*args)
     Amphicore::EventFactory.create(*args)
@@ -404,5 +433,36 @@ class Game_Interpreter
   
   def replace_event(*args)
     Amphicore::EventFactory.replace(*args)
+  end
+end
+
+# for route script interpreting
+class Game_Event
+  def create_event(*args)
+    Amphicore::EventFactory.create(*args)
+  end
+  
+  def erase_event(*args)
+    Amphicore::EventFactory.erase(*args)
+  end
+  
+  def replace_event(*args)
+    Amphicore::EventFactory.replace(*args)
+  end
+end
+#--------------------------------------------------------------------cache clear
+module DataManager
+  class << self
+    alias acef_create_game_objects create_game_objects
+    def create_game_objects(*args)
+      Amphicore::EventFactory.clear_caches
+      acef_create_game_objects(*args)
+    end
+
+    alias acef_extract_save_contents extract_save_contents
+    def extract_save_contents(contents)
+      Amphicore::EventFactory.clear_caches
+      acef_extract_save_contents(contents)
+    end
   end
 end

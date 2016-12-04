@@ -1,4 +1,4 @@
-=begin
+﻿=begin
 #======================================================================[LICENSE]
 The MIT License (MIT)
 
@@ -23,15 +23,16 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 #===============================================================================
 PATCHNOTE'S
-> 1.0.0
-  � Custom conditions (for events only !)
-    > Forced custom conditions
+► 1.0.0
+  ♦ Custom conditions (for events only ‼)
+    → Forced custom conditions
 #===============================================================================
 =end
 $imported ||= {}
 $imported[:EventControls] = "1.0.0"
 if $imported[:Amphicore].nil? then 
   raise "Import Amphicore script!"
+end
 #===============================================================================
 #                                                                    CONFIG CORE
 #===============================================================================

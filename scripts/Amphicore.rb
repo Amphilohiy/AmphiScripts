@@ -28,10 +28,17 @@ PATCHNOTE'S
     → Interface for parcing events, event's pages and items with notes
   ♦ Data Serialization
   ♦ Aliases for switches and variables
+► 1.1.0
+  ♦ Smart (not really) kwargs parser
+  ♦ Text resolver
+  ♦ Data Serialization
+    → Fill missing data on savefile
+  ♦ Text Parser
+    → Diffirent caches for parsekits
 #===============================================================================
 =end
 $imported ||= {}
-$imported[:Amphicore] = "1.0.0"
+$imported[:Amphicore] = "1.1.0"
 #===============================================================================
 #                                                                    CONFIG CORE
 #===============================================================================
@@ -41,18 +48,64 @@ module Amphicore
   TEXT_EVENT_PAGE_PARSER = ["<page>", "<\\+>", "<end>"]
   
   TEXT_PARSER_CASE = 1
+  
+  TEXT_RESOLVER_DEFAULT_FONT = Font.new
 #===============================================================================
 #                                                                    TEXT PARSER
 #===============================================================================
-  module TextParser
 #---------------------------------------------------------------parsekit factory
+  module TextParser
+    # parse kit class, handlers included
+    class ParseKit
+      @@index = 0
+      
+      attr_reader :index
+      attr_reader :token_start
+      attr_reader :token_separator
+      attr_reader :token_finish
+      attr_reader :regex_case
+      attr_reader :regex
+      
+      attr_reader :text_handlers
+      def initialize(start, separator, finish, opts)
+        @token_start = Regexp.new("#{start}", TEXT_PARSER_CASE)
+        @token_separator = Regexp.new("#{separator}|\\z", TEXT_PARSER_CASE)
+        @token_finish = Regexp.new("#{finish}", TEXT_PARSER_CASE)
+        @regex_case = opts
+        @index = @@index
+        @text_handlers = {}
+        @@index += 1
+      end
+      
+      def handle_data(data)
+        data.inject({}) do |result, value|
+          k, v = value
+          handler = @text_handlers[k]
+          begin
+            result[k] = handler.nil? ? v : handler.call(v)
+          rescue Exception => e
+            puts "Handler error: #{e}"
+            puts "key:   #{k}"
+            puts "value: #{v}"
+            result[k] = v
+          end
+          result
+        end
+      end
+      
+      def add_handler key, &handler
+        @text_handlers[key] = handler
+      end
+    end
+    
+    # template handlers
+    PLAIN_PROC = proc do |value|
+      eval("Proc.new do ||\n#{value}\nend")
+    end
+    
     # turn arguments to kit, that would be used later
     def self.create_parsekit(start, separator, finish, opts)
-      [
-        Regexp.new("#{start}", TEXT_PARSER_CASE),
-        Regexp.new("#{separator}|\\z", TEXT_PARSER_CASE),
-        Regexp.new("#{finish}", TEXT_PARSER_CASE),
-      ]
+      ParseKit.new(start, separator, finish, opts)
     end
     
     # kit's that i personally use in my scripts (and implement some functionality(
@@ -65,39 +118,24 @@ module Amphicore
       tail = text
       data = {}
       # Searching for chunk
-      while parsekit[0] =~ tail do
+      while parsekit.token_start =~ tail do
         tail = $'
         chunk = tail
-        if parsekit[2] =~ chunk then
+        if parsekit.token_finish =~ chunk then
           chunk = $`
         end
         # separate for data
-        while parsekit[1] =~ chunk do
+        while parsekit.token_separator =~ chunk do
           chunk = $'
           /\s/ =~ $`.strip
           data[$`.to_sym] = $' if $` && $'
           if chunk.length == 0  then break end
         end
       end
-      data
-    end
-#----------------------------------------------------------------------interface    
-    # common parsing with custom parsekit and memoization
-    def self.get(item, text, parsekit)
-      result = item.instance_variable_get(:@apd)
-      if !result then
-        result = parse_text(text, parsekit)
-        item.instance_variable_set(:@apd, result)
-      end
-      result
-    end
-    
-    # parsing item with note (default <item> <+> <end>)
-    def self.get_note(item)
-      get(item, item.note, NOTE_PARSEKIT)
+      parsekit.handle_data data
     end
 #---------------------------------------------------------------parser utilities 
-    # collecting comments in event. Only starting comments count
+    # collecting comments in event. Only starting comments counts
     COMMENTS_COMMAND = [108, 408]
     def self.collect_comments(list)
       comments = []
@@ -108,10 +146,27 @@ module Amphicore
       end
       comments.join("\n")
     end
+#----------------------------------------------------------------------interface    
+    # common parsing with custom parsekit and memoization
+    def self.get(item, text, parsekit)
+      var_name = :"@apd#{parsekit.index}"
+      result = item.instance_variable_get(var_name)
+      if !result then
+        result = parse_text(text, parsekit)
+        item.instance_variable_set(var_name, result)
+      end
+      result
+    end
+    
+    # parsing item with note (default <item> <+> <end>)
+    def self.get_note(item)
+      get(item, item.note, NOTE_PARSEKIT)
+    end
     
     # get RPG::EVENT type of event
     def self.get_rgss_event(event)
-      result = event.instance_variable_get(:@apd)
+      var_name = :"@apd#{EVENT_PARSEKIT.index}"
+      result = event.instance_variable_get(var_name)
       return result unless result.nil?
       
       result = {}
@@ -121,18 +176,91 @@ module Amphicore
         result.merge!(chunk)
       end
       
-      event.instance_variable_set(:@apd, result)
+      event.instance_variable_set(var_name, result)
       result
     end
     
     # get RPG::EVENT page type of event
     def self.get_rgss_event_page(page)
-      result = page.instance_variable_get(:@apd)
+      var_name = :"@apd#{EVENT_PAGE_PARSEKIT.index}"
+      result = page.instance_variable_get(var_name)
       return result unless result.nil?
       comments = collect_comments(page.list)
       result = parse_text(comments, EVENT_PAGE_PARSEKIT)
-      page.instance_variable_set(:@apd, result)
+      page.instance_variable_set(var_name, result)
       result
+    end
+  end
+#===============================================================================
+#                                                                  TEXT_RESOLVER
+#===============================================================================
+  module TextResolver
+    @@bitmap = Bitmap.new(1, 1)
+    def self.resolve(text, width, font = Amphicore::TEXT_RESOLVER_DEFAULT_FONT)
+      @@bitmap.font = font
+      
+      # Splitting manual newliners
+      paragraphs = []
+      while /\n/ =~ text
+        paragraphs << $`
+        text = $'
+      end
+      paragraphs << text
+      
+      # Splitting to lines
+      lines = []
+      paragraphs.each do |paragraph|
+        words = paragraph.split(' ')
+        line = words.shift
+        words.each do |word|
+          concated_line = line + " #{word}"
+          if @@bitmap.text_size(concated_line).width <= width then
+            line = concated_line
+          else
+            lines << line
+            line = word
+          end
+        end
+        lines << line
+      end
+      
+      lines
+    end
+  end
+#===============================================================================
+#                                                                        KWARGED
+#===============================================================================  
+  module Kwarged
+    # making kwargs resolver wrapper
+    def arged *methods
+      methods.each do |method_name|
+        # no constant 4 you on this one... because
+        func_name = ("unarged_" + method_name.to_s).to_sym
+        meth = method method_name
+        # aliasing done this way
+        define_singleton_method func_name, meth
+        # map named keys to their position
+        key_to_pos = meth.parameters.each_with_object({}).each_with_index do |pack, idx|
+          result = pack.pop
+          type, arg = pack.pop
+          result[arg] = idx unless type == :rest
+          result
+        end
+        # kwargs resolver
+        anon = lambda{|*args|
+          result = args.clone
+          # check if we have kwargs last, and of course i can't tell if it's just hash
+          kwargs = result[-1].is_a?(Hash) ? result.pop : {}
+          # puts kwargs to their respective position
+          kwargs.each do |key, value|
+            result[key_to_pos[key]] = value
+          end
+          # just call with all arguments!
+          send func_name, *result
+        }
+        # Deanon, haha
+        define_singleton_method method_name, &anon
+      end
     end
   end
 #===============================================================================
@@ -186,7 +314,10 @@ module DataManager
     def extract_save_contents(contents)
       extract_save_contents_amphicore(contents)
       Amphicore::SERIALIZED.each do |name, klass|
-        eval("$#{name} = contents[name.to_sym]")
+        content = contents[name.to_sym]
+        # Make null data if there is no in savedata
+        content = klass.new if content.nil?
+        eval("$#{name} = content")
       end
     end
   end
@@ -215,8 +346,7 @@ class Game_Event
     Amphicore::TextParser.get_rgss_event(@event)
   end
   # interface to get data of event's page
-  def parse_page(page_num = nil)
-    page = page_num ? @event.pages[page_num] : @page
+  def parse_page(page = @page)
     Amphicore::TextParser.get_rgss_event_page(page)
   end
 end
@@ -246,7 +376,7 @@ end
 #===============================================================================
 #                                                                 INITIALIZATION
 #===============================================================================
-# aliases for standard $gave_...
+# aliases for standard $game_...
 def var() $game_variables end
 def swi() $game_switches end
 def sswi() $game_self_switches end
