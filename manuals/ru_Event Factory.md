@@ -6,21 +6,21 @@
 # этот метод вызывается только из интерпретатора или события
 create_event(name, x, y, map_id = $game_map.map_id) # => ид нового события
 # этот глобальный
-Amphicore::Event_Factory.create(name, x, y, map_id = $game_map.map_id) # => ид нового события
+Amphicore::EventFactory.create(name, x, y, map_id = $game_map.map_id) # => ид нового события
 ```
 Удаляет событие по идентификатору=event_id в карте с идентификатором=map_id.
 ```
 # этот метод вызывается только из интерпретатора или события
 erase_event(event_id, map_id = $game_map.map_id)
 # этот глобальны
-Amphicore::Event_Factory.erase(event_id, map_id = $game_map.map_id)
+Amphicore::EventFactory.erase(event_id, map_id = $game_map.map_id)
 ```
 Заменяет событие с идентификатором=event_id событием из шаблона=name, ставя шаблон в координаты x, y в карте с идентификатором=map_id. Если установить координаты в nil, то данная координата будет браться из заменяемого события.
 ```
 # этот метод вызывается только из интерпретатора или события
 replace_event(event_id, name, x = nil, y = nil, map_id = $game_map.map_id)
 # этот глобальный
-Amphicore::Event_Factory.replace(event_id, name, x = nil, y = nil, map_id = $game_map.map_id)
+Amphicore::EventFactory.replace(event_id, name, x = nil, y = nil, map_id = $game_map.map_id)
 ```
 ######ПРИМЕРЫ
 ```
