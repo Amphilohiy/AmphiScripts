@@ -2,7 +2,7 @@
 #======================================================================[LICENSE]
 The MIT License (MIT)
 
-Copyright (c) 2016 Amphilohiy
+Copyright (c) 2016-2018 Amphilohiy
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -33,6 +33,9 @@ PATCHNOTE'S
   ♦ Bugfixes
     → Cache clear bug fixed
     → Game map interpreter freeze bug fixed
+♦ 1.0.2
+  ♦ Bugfixes
+    → Storing/restoring positions of deleted "original" events crash
 #===============================================================================
 =end
 $imported ||= {}
@@ -46,7 +49,7 @@ raise "Required at least Amphicore v1.1.0" unless Amphicore.check_version($impor
 #                                                                    CONFIG CORE
 #===============================================================================
 module Amphicore
-  EVENT_FACTORY_TEMPLATES = [2, 7]
+  EVENT_FACTORY_TEMPLATES = []
   
   TAG_PRESERVE_POSITION = :save_pos
   TAG_REPLACE_EVENT = :replace
@@ -343,14 +346,14 @@ class Game_Map
     return if @map.nil?
     mapping = Amphicore::EventFactory.get_mapping(@map_id)
     mapping.each do |id, event|
-      event.store_position(@events[id])
+      event.store_position(@events[id]) if @events.has_key? id
     end
   end
   
   def acef_restore_position
     mapping = Amphicore::EventFactory.get_mapping(@map_id)
     mapping.each do |id, event|
-      event.restore_position(@events[id])
+      event.restore_position(@events[id]) if @events.has_key? id
     end
   end
   
